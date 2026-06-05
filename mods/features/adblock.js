@@ -97,16 +97,15 @@ JSON.parse = function () {
     );
   }
 
-  // Patch settings
-
-  if (r?.title?.runs) {
+  // Patch settings (must not run on search refinement responses that also use title.runs + items)
+  if (isSettingsResponse(r)) {
     PatchSettings(r);
   }
 
   // DeArrow Implementation. I think this is the best way to do it. (DOM manipulation would be a pain)
 
-  if (r?.contents?.sectionListRenderer?.contents) {
-    processShelves(r.contents.sectionListRenderer.contents);
+  for (const sectionContents of getSectionListContents(r)) {
+    processShelves(sectionContents);
   }
 
   if (r?.continuationContents?.sectionListContinuation?.contents) {
@@ -263,6 +262,21 @@ for (const key in window._yttv) {
 }
 
 
+function isSettingsResponse(r) {
+  return r?.title?.runs && Array.isArray(r.items) && r.items.some(
+    (item) => item.settingCategoryCollectionRenderer || item.settingActionRenderer
+  );
+}
+
+function getSectionListContents(r) {
+  const contents = [
+    r?.contents?.sectionListRenderer?.contents,
+    r?.contents?.twoColumnSearchResultsRenderer?.primaryContents?.sectionListRenderer?.contents,
+    r?.contents?.twoColumnSearchResultsRenderer?.secondaryContents?.sectionListRenderer?.contents,
+  ];
+  return contents.filter(Boolean);
+}
+
 function processShelves(shelves, shouldAddPreviews = true) {
   for (const shelve of shelves) {
     if (shelve.shelfRenderer) {
@@ -291,7 +305,8 @@ function addPreviews(items) {
   if (!configRead('enablePreviews')) return;
   for (const item of items) {
     if (item.tileRenderer) {
-      const watchEndpoint = item.tileRenderer.onSelectCommand;
+      const watchEndpoint = item.tileRenderer.onSelectCommand?.watchEndpoint;
+      if (!watchEndpoint?.videoId) continue;
       if (item.tileRenderer?.onFocusCommand?.playbackEndpoint) continue;
       if (item.tileRenderer?.onFocusCommand?.commandExecutorCommand) continue;
       item.tileRenderer.onFocusCommand = {
@@ -303,7 +318,7 @@ function addPreviews(items) {
           muted: false,
           restartPlaybackBeforeSeconds: 10,
           resumeVideo: true,
-          playbackEndpoint: watchEndpoint
+          playbackEndpoint: { watchEndpoint }
         }
       };
     }
